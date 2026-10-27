@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>AI-Server · Монитор</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="refresh" content="300">
+<style>
+:root{
+  --bg:#0a0e12; --card:#11171e; --border:#1c2733;
+  --text:#e6edf3; --muted:#68788c; --green:#3ddc97; --orange:#e8a33d; --blue:#4aa8e8; --red:#f06868; --violet:#a78bfa;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font:14px/1.45 -apple-system,'Segoe UI',Roboto,sans-serif;padding:20px 28px 60px}
+header{max-width:1400px;margin:0 auto 22px;display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+header h1{font-size:20px;font-weight:700}
+header .sub{color:var(--muted);font-size:13px}
+header .right{margin-left:auto;background:var(--card);border:1px solid var(--border);border-radius:999px;padding:7px 16px;font-size:13px;display:flex;gap:8px;align-items:center}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;background:var(--muted)}
+.dot.g{background:var(--green);box-shadow:0 0 6px var(--green)}
+.dot.b{background:var(--blue)}
+.dot.y{background:var(--orange)}
+.dot.r{background:var(--red)}
+.wrap{max-width:1400px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
+.state{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:18px 22px}
+.state .row1{display:flex;align-items:center;gap:14px;margin-bottom:12px;flex-wrap:wrap}
+.state h2{font-size:16px;margin-right:6px}
+.pill{border-radius:999px;padding:4px 12px;font-size:13px;color:var(--muted);border:1px solid transparent;display:flex;gap:6px;align-items:center}
+.pill.on{color:var(--green);background:rgba(61,220,151,.09);border-color:rgba(61,220,151,.25)}
+.state .row2{display:flex;justify-content:space-between;color:var(--text);margin-bottom:8px}
+.state .row2 .m{color:var(--muted)}
+.bar{height:4px;background:#1a2430;border-radius:2px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--green);width:0;border-radius:2px;transition:width .9s linear}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px 18px 12px;min-height:170px;display:flex;flex-direction:column}
+.card .t{color:var(--muted);font-size:13px;display:flex;gap:7px;align-items:center;margin-bottom:10px}
+.card .big{font-size:40px;font-weight:800;letter-spacing:-1px;line-height:1}
+.card .big .u{font-size:15px;font-weight:500;color:var(--muted);margin-left:3px}
+.card .dual{display:flex;gap:26px}
+.card .sub{color:var(--muted);font-size:12.5px;margin-top:7px}
+.card svg.spark{margin-top:auto;width:100%;height:44px;display:block}
+.spark .line{fill:none;stroke-width:1.6;vector-effect:non-scaling-stroke}
+.spark .area{stroke:none;opacity:.12}
+.bottom{display:grid;grid-template-columns:400px 1fr;gap:16px}
+@media (max-width:1000px){.bottom{grid-template-columns:1fr}}
+.panel{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:18px 22px}
+.panel h3{font-size:15px;margin-bottom:14px}
+.ring{display:flex;justify-content:center;margin:6px 0 16px;position:relative}
+.ring svg{transform:rotate(-90deg)}
+.kv{margin-top:6px}
+.kv .k{display:flex;justify-content:space-between;font-size:13.5px;margin-bottom:5px}
+.kv .k b{font-weight:600}
+.kv .k span:last-child{color:var(--muted)}
+.kv .bar{margin-bottom:14px}
+.v2{opacity:.45}
+.badge-v2{font-size:10px;color:var(--orange);border:1px solid var(--orange);border-radius:6px;padding:1px 6px;margin-left:8px;vertical-align:2px}
+.err{display:none;max-width:1400px;margin:0 auto 16px;padding:10px 14px;border:1px solid var(--red);border-radius:10px;color:var(--red);font-size:13px}
+</style>
+</head>
+<body>
+
+<div class="err" id="err"></div>
+<header>
+  <h1>🧠 AI-Server · Монитор</h1>
+  <div class="sub">Qwen3.8-Flash-Next · vLLM · 192.168.20.18</div>
+  <div class="right"><span class="dot" id="hdrDot"></span><span id="hdrState">—</span> · <b id="hdrTok">…</b></div>
+</header>
+<div class="wrap">
+
+  <div class="state">
+    <div class="row1"><h2>Состояние модели</h2>
+      <span class="pill" id="p-idle"><span class="dot"></span>Простой</span>
+      <span class="pill" id="p-read"><span class="dot b"></span>Чтение</span>
+      <span class="pill" id="p-gen"><span class="dot g"></span>Генерация</span>
+      <span class="pill" id="p-queue"><span class="dot y"></span>В очереди</span>
+      <span class="pill" id="p-err"><span class="dot r"></span>Нет связи</span>
+    </div>
+    <div class="row2"><span id="phase">—</span><span class="m" id="phaseMeta"></span></div>
+    <div class="bar"><i id="phaseBar"></i></div>
+  </div>
+
+  <div class="grid" id="cards"></div>
+
+  <div class="bottom">
+    <div class="panel">
+      <h3>Заполнение контекста <span style="color:var(--muted);font-weight:400;font-size:12px">(KV-кэш)</span></h3>
+      <div class="ring">
+        <svg width="170" height="170" viewBox="0 0 170 170">
+          <circle cx="85" cy="85" r="70" stroke="#1a2430" stroke-width="12" fill="none"/>
+          <circle id="ringArc" cx="85" cy="85" r="70" stroke="var(--green)" stroke-width="12" fill="none"
+            stroke-linecap="round" stroke-dasharray="440" stroke-dashoffset="440"/>
+        </svg>
+        <div style="position:absolute;display:flex;flex-direction:column;align-items:center;justify-content:center;height:170px">
+          <div style="font-size:32px;font-weight:800" id="fillPct">—</div>
+          <div style="color:var(--muted);font-size:13px" id="fillAbs">запущено / в ожидании</div>
+        </div>
+      </div>
+      <div class="kv">
+        <div class="k"><b>Попадание prefix-кэша</b><span id="v-pch">—</span></div>
+        <div class="bar"><i id="b-pch" style="background:var(--green)"></i></div>
+        <div class="k"><b>Принятие MTP</b><span id="v-mtp">—</span></div>
+        <div class="bar"><i id="b-mtp" style="background:var(--blue)"></i></div>
+        <div class="k"><b>Оперативная память</b><span id="v-ram">—</span></div>
+        <div class="bar"><i id="b-ram" style="background:var(--green)"></i></div>
+        <div class="k"><b>Температура GPU (макс)</b><span id="v-tempT">—</span></div>
+        <div class="bar"><i id="b-temp" style="background:var(--orange)"></i></div>
+      </div>
+    </div>
+    <div class="panel v2">
+      <h3>Последние запросы <span class="badge-v2">v2 — источник: логи vLLM / БД LiteLLM</span></h3>
+      <div style="color:var(--muted);font-size:13.5px;padding:10px 0">
+        vLLM не отдаёт per-request метрики в Prometheus. Таблица появится во v2:
+        парсер логов vLLM или БД LiteLLM.
+      </div>
+    </div>
+  </div>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

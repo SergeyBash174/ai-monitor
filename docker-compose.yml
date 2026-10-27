@@ -1,0 +1,58 @@
+name: monitoring
+services:
+  prometheus:
+    image: prom/prometheus:${PROM_IMAGE_TAG}
+    user: "1000:1000"
+    network_mode: host
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+      - --web.listen-address=127.0.0.1:9090
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/secrets:/etc/prometheus/secrets:ro
+      - prom-data:/prometheus
+    restart: unless-stopped
+
+  node-exporter:
+    image: prom/node-exporter:v1.9.1
+    network_mode: host
+    pid: host
+    command:
+      - --web.listen-address=127.0.0.1:9100
+      - --path.rootfs=/host
+    volumes:
+      - /:/host:ro,rslave
+    restart: unless-stopped
+
+  nvml-exporter:
+    build: ./exporter
+    image: ai-monitor-nvml-exporter:local
+    network_mode: host
+    ipc: host
+    environment:
+      NVML_LISTEN: 127.0.0.1:9101
+    gpus: all
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana-oss:${GRAFANA_IMAGE_TAG}
+    network_mode: host
+    env_file: .env
+    environment:
+      GF_SERVER_HTTP_ADDR: 127.0.0.1
+      GF_SERVER_HTTP_PORT: 3001
+      GF_SERVER_ROOT_URL: http://grafana.ai.lan/
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - graf-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    restart: unless-stopped
+
+volumes:
+  prom-data:
+  graf-data:

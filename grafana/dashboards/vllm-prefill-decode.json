@@ -1,0 +1,131 @@
+{
+  "uid": "vllm-prefill-decode",
+  "title": "vLLM — Prefill / Decode (Server-PC)",
+  "tags": ["vllm", "llm"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "id": 1, "type": "timeseries", "title": "Throughput: prefill vs generation (tok/s)",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "PROM-VLLM" },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "legendFormat": "prefill (prompt tok/s)", "expr": "sum(rate(vllm:prompt_tokens_total{job=\"vllm\"}[$__rate_interval]))" },
+        { "refId": "B", "legendFormat": "generation (output tok/s)", "expr": "sum(rate(vllm:generation_tokens_total{job=\"vllm\"}[$__rate_interval]))" }
+      ]
+    },
+    {
+      "id": 2, "type": "timeseries", "title": "Prefill из кэшей (tok/s): prefix-cache hits",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 10 },
+      "datasource": { "type": "prometheus", "uid": "PROM-VLLM" },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "legendFormat": "prompt tokens cached (prefix hit)", "expr": "sum(rate(vllm:prompt_tokens_cached_total{job=\"vllm\"}[$__rate_interval]))" },
+        { "refId": "B", "legendFormat": "prefix cache queries", "expr": "sum(rate(vllm:prefix_cache_queries_total{job=\"vllm\"}[$__rate_interval]))" }
+      ]
+    },
+    {
+      "id": 3, "type": "timeseries", "title": "Prefix cache hit ratio",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 10 },
+      "datasource": { "type": "prometheus", "uid": "PROM-VLLM" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "max": 1, "min": 0 }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "legendFormat": "hit ratio", "expr": "sum(rate(vllm:prefix_cache_hits_total{job=\"vllm\"}[$__rate_interval])) / clamp_min(sum(rate(vllm:prefix_cache_queries_total{job=\"vllm\"}[$__rate_interval])), 1e-9)" }
+      ]
+    },
+    {
+      "id": 4, "type": "timeseries", "title": "TTFT — время до первого токена (квантили)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 18 },
+      "datasource": { "type": "prometheus", "uid": "PROM-VLLM" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "legendFormat": "p50", "expr": "histogram_quantile(0.50, sum by (le) (rate(vllm:time_to_first_token_seconds_bucket{job=\"vllm\"}[$__rate_interval])))" },
+        { "refId": "B", "legendFormat": "p95", "expr": "histogram_quantile(0.95, sum by (le) (rate(vllm:time_to_first_token_seconds_bucket{job=\"vllm\"}[$__rate_interval])))" },
+        { "refId": "C", "legendFormat": "p99", "expr": "histogram_quantile(0.99, sum by (le) (rate(vllm:time_to_first_token_seconds_bucket{job=\"vllm\"}[$__rate_interval])))" }
+      ]
+    },
+    {
+      "id": 5, "type": "timeseries", "title": "Чистое prefill-время запроса (request_prefill_time)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 18 },
+      "datasource": { "type": "prometheus", "uid": "PROM-VLLM" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "legendFormat": "p50", "expr": "histogram_quantile(0.50, sum by (le) (rate(vllm:request_prefill_time_seconds_bucket{job=\"vllm\"}[$__rate_interval])))" },
+        { "refId": "B", "legendFormat": "p95", "expr": "histogram_quantile(0.95, sum by (le) (rate(vllm:request_prefill_time_seconds_bucket{job=\"vllm\"}[$__rate_interval])))" },
+        { "refId": "C", "legendFormat": "p99", "expr": "histogram_quantile(0.99, sum by (le) (rate(vllm:request_prefill_time_seconds_bucket{job=\"vllm\"}[$__rate_interval])))" }
+      ]
+    },
+    {
+      "id": 6, "type": "timeseries", "title": "Inter-token latency (decode)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 26 },
+      "datasource": { "type": "prometheus", "uid": "PROM-VLLM" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "legendFormat": "p50", "expr": "histogram_quantile(0.50, sum by (le) (rate(vllm:inter_token_latency_seconds_bucket{job=\"vllm\"}[$__rate_interval])))" },
+        { "refId": "B", "legendFormat": "p95", "expr": "histogram_quantile(0.95, sum by (le) (rate(vllm:inter_token_latency_seconds_bucket{job=\"vllm\"}[$__rate_interval])))" }
+      ]
+    },
+    {
+      "id": 7, "type": "timeseries", "title": "MTP speculation: acceptance ratio",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 26 },
+      "datasource": { "type": "prometheus", "uid": "PROM-VLLM" },
+      "fieldConfig": { "defaults": { "unit": "percentunit" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "legendFormat": "accepted / drafted", "expr": "sum(rate(vllm:spec_decode_num_accepted_tokens_total{job=\"vllm\"}[$__rate_interval])) / clamp_min(sum(rate(vllm:spec_decode_num_draft_tokens_total{job=\"vllm\"}[$__rate_interval])), 1e-9)" }
+      ]
+    },
+    {
+      "id": 8, "type": "timeseries", "title": "Запросы: running / waiting (prefill-очередь)",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 34 },
+      "datasource": { "type": "prometheus", "uid": "PROM-VLLM" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "legendFormat": "running", "expr": "sum(vllm:num_requests_running{job=\"vllm\"})" },
+        { "refId": "B", "legendFormat": "waiting", "expr": "sum(vllm:num_requests_waiting{job=\"vllm\"})" }
+      ]
+    },
+    {
+      "id": 9, "type": "timeseries", "title": "KV cache usage",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 34 },
+      "datasource": { "type": "prometheus", "uid": "PROM-VLLM" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "max": 1, "min": 0 }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "legendFormat": "KV usage", "expr": "max(vllm:kv_cache_usage_perc{job=\"vllm\"})" }
+      ]
+    },
+    {
+      "id": 10, "type": "timeseries", "title": "Queue time / preemptions",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 34 },
+      "datasource": { "type": "prometheus", "uid": "PROM-VLLM" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "legendFormat": "queue p95 (s)", "expr": "histogram_quantile(0.95, sum by (le) (rate(vllm:request_queue_time_seconds_bucket{job=\"vllm\"}[$__rate_interval])))" },
+        { "refId": "B", "legendFormat": "preemptions/s", "expr": "sum(rate(vllm:num_preemptions_total{job=\"vllm\"}[$__rate_interval]))" }
+      ]
+    },
+    {
+      "id": 11, "type": "timeseries", "title": "Размеры запросов: prompt / generation tokens (среднее за 15m)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 42 },
+      "datasource": { "type": "prometheus", "uid": "PROM-VLLM" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "legendFormat": "avg prompt tokens/req", "expr": "sum(increase(vllm:request_prompt_tokens_sum{job=\"vllm\"}[15m])) / clamp_min(sum(increase(vllm:request_prompt_tokens_count{job=\"vllm\"}[15m])), 1)" },
+        { "refId": "B", "legendFormat": "avg generation tokens/req", "expr": "sum(increase(vllm:request_generation_tokens_sum{job=\"vllm\"}[15m])) / clamp_min(sum(increase(vllm:request_generation_tokens_count{job=\"vllm\"}[15m])), 1)" }
+      ]
+    },
+    {
+      "id": 12, "type": "timeseries", "title": "E2E latency запроса",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 42 },
+      "datasource": { "type": "prometheus", "uid": "PROM-VLLM" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "legendFormat": "p50", "expr": "histogram_quantile(0.50, sum by (le) (rate(vllm:e2e_request_latency_seconds_bucket{job=\"vllm\"}[$__rate_interval])))" },
+        { "refId": "B", "legendFormat": "p95", "expr": "histogram_quantile(0.95, sum by (le) (rate(vllm:e2e_request_latency_seconds_bucket{job=\"vllm\"}[$__rate_interval])))" }
+      ]
+    }
+  ]
+}
