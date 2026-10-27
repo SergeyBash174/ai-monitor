@@ -97,7 +97,7 @@ async function jq(expr) {
   return j.data.result;
 }
 // серия Prometheus {metric, value} → компактный {m, v} для sub()-функций карточек
-const series = res => res.map(x => ({m: x.metric, v: x.value}));
+const toSeries = res => res.map(x => ({m: x.metric, v: x.value}));
 async function jqRange(expr) {
   const now = Math.floor(Date.now() / 1000);
   const mins = CFG.sparkMinutes, step = CFG.sparkStep;
@@ -157,7 +157,7 @@ async function pollInstant() {
     for (const k in KV) jobs.push({id: 'kv_' + k, e: KV[k]});
     const res = await Promise.all(jobs.map(j => jq(j.e)));
     const M = {};
-    jobs.forEach((j, i) => M[j.id] = (j.raw || j.multi) ? series(res[i])
+    jobs.forEach((j, i) => M[j.id] = (j.raw || j.multi) ? toSeries(res[i])
       : res[i].length ? +res[i][0].value[1] : null);
 
     txt('v-dec', num(M.dec, 1)); txt('v-pre', num(M.pre, 0));
