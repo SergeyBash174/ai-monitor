@@ -12,8 +12,12 @@ window.MONITOR_CONFIG = {
 
   // Poll intervals (ms) and sparkline window
   refreshMs: 2000,
-  sparkRefreshMs: 15000,
+  sparkRefreshMs: 10000,
   sparkMinutes: 15,
+
+  // Smoothing window for rate() queries. Scrape interval is 15s, so 15-30s
+  // is responsive, 60s+ is smooth. Can be overridden live from the page header.
+  rateWindow: '30s',
 
   // Prometheus job names as in prometheus/prometheus.yml
   jobs: { vllm: 'vllm', node: 'node', nvml: 'nvml' },

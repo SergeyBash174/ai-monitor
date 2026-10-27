@@ -8,14 +8,19 @@ const CFG = Object.assign({
   title: 'LLM Server · Монитор',
   subtitle: '',
   apiBase: '/api/v1',
-  refreshMs: 2000, sparkRefreshMs: 15000, sparkMinutes: 15, sparkStep: 15,
+  refreshMs: 2000, sparkRefreshMs: 10000, sparkMinutes: 15, sparkStep: 15,
+  rateWindow: '30s',
   jobs: { vllm: 'vllm', node: 'node', nvml: 'nvml' },
 }, window.MONITOR_CONFIG || {});
+
+// пользовательские настройки из шапки (localStorage) важнее config.js
+const LS_KEY = 'monitor.settings';
+try { Object.assign(CFG, JSON.parse(localStorage.getItem(LS_KEY) || '{}')); } catch (e) {}
 
 const JV = `job="${CFG.jobs.vllm}"`;
 const JN = `job="${CFG.jobs.node}"`;
 const JG = `job="${CFG.jobs.nvml}"`;
-const R = (e, w = '60s') => `sum(rate(${e}{${JV}}[${w}]))`;
+const R = (e, w = CFG.rateWindow) => `sum(rate(${e}{${JV}}[${w}]))`;
 const API = CFG.apiBase;
 
 // шапка из конфига
@@ -59,18 +64,18 @@ const CARDS = [
    q: `histogram_quantile(0.95, sum by (le) (rate(vllm:time_to_first_token_seconds_bucket{${JV}}[5m])))`, fmt: 2,
    sub: () => 'время до первого токена'},
   {k: 'cpu', t: '💽 Процессор', u: '%', color: '#3ddc97',
-   q: `100 - avg(rate(node_cpu_seconds_total{${JN},mode="idle"}[60s]))*100`,
+   q: `100 - avg(rate(node_cpu_seconds_total{${JN},mode="idle"}[${CFG.rateWindow}]))*100`,
    q2: `avg(node_load1{${JN}})`, fmt: 0,
    sub: (v, per, load) => (load ? 'load 1m ' + load.toFixed(2) : '')},
   {k: 'disk', t: '💾 Диск чтение', u: 'МБ/с', color: '#4aa8e8',
-   q: `sum(rate(node_disk_read_bytes_total{${JN}}[60s]))/1048576`,
-   q2: `sum(rate(node_disk_written_bytes_total{${JN}}[60s]))/1048576`, fmt: 1,
+   q: `sum(rate(node_disk_read_bytes_total{${JN}}[${CFG.rateWindow}]))/1048576`,
+   q2: `sum(rate(node_disk_written_bytes_total{${JN}}[${CFG.rateWindow}]))/1048576`, fmt: 1,
    sub: (v, per, wr) => 'запись ' + (wr ? wr.toFixed(1) + ' МБ/с' : '')},
 ];
 
 const KV = {
   kv: `max(vllm:kv_cache_usage_perc{${JV}})*100`,
-  run: R('vllm:num_requests_running', '1m'), wait: R('vllm:num_requests_waiting', '1m'),
+  run: R('vllm:num_requests_running'), wait: R('vllm:num_requests_waiting'),
   pch: `sum(rate(vllm:prefix_cache_hits_total{${JV}}[5m]))/clamp_min(sum(rate(vllm:prefix_cache_queries_total{${JV}}[5m])),1e-9)*100`,
   mtp: `sum(rate(vllm:spec_decode_num_accepted_tokens_total{${JV}}[5m]))/clamp_min(sum(rate(vllm:generation_tokens_total{${JV}}[5m])),1e-9)*100`,
   ramU: `sum(node_memory_MemTotal_bytes{${JN}})-sum(node_memory_MemAvailable_bytes{${JN}})`,
@@ -216,6 +221,27 @@ async function pollRange() {
     spark('s-speed', series[0]);
     plain.forEach((c, i) => spark('s-' + c.k, series[i + 1]));
   } catch (e) {/* разберёт pollInstant */}
+}
+
+// ===== настройки обновления в шапке (localStorage → применяются при загрузке) =====
+{
+  const set = patch => {
+    let cur = {};
+    try { cur = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) {}
+    localStorage.setItem(LS_KEY, JSON.stringify(Object.assign(cur, patch)));
+    location.reload(); // запросы CARDS/KV строятся на лету — проще перезагрузить
+  };
+  const mk = (id, list, cur, on) => {
+    const s = document.getElementById(id);
+    if (!s) return;
+    s.innerHTML = list.map(([v, t]) =>
+      `<option value="${v}"${String(v) === String(cur) ? ' selected' : ''}>${t}</option>`).join('');
+    s.onchange = () => on(s.value);
+  };
+  mk('cfgRefresh', [[500, '0.5 с'], [1000, '1 с'], [2000, '2 с'], [5000, '5 с'], [10000, '10 с']],
+    CFG.refreshMs, v => set({refreshMs: +v, sparkRefreshMs: Math.max(5000, +v * 5)}));
+  mk('cfgRate', [['15s', '15 с · отзывчиво'], ['30s', '30 с'], ['60s', '60 с · гладко'], ['5m', '5 мин']],
+    CFG.rateWindow, v => set({rateWindow: v}));
 }
 
 pollInstant(); pollRange();

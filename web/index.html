@@ -4,7 +4,6 @@
 <meta charset="utf-8">
 <title>AI-Server · Монитор</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="refresh" content="300">
 <style>
 :root{
   --bg:#0a0e12; --card:#11171e; --border:#1c2733;
@@ -21,6 +20,9 @@ header .right{margin-left:auto;background:var(--card);border:1px solid var(--bor
 .dot.b{background:var(--blue)}
 .dot.y{background:var(--orange)}
 .dot.r{background:var(--red)}
+.cfg{display:flex;gap:10px;align-items:center;font-size:12px;color:var(--muted)}
+.cfg select{background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:7px;padding:4px 7px;font-size:12px;cursor:pointer}
+.cfg select:hover{border-color:var(--muted)}
 .wrap{max-width:1400px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
 .state{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:18px 22px}
 .state .row1{display:flex;align-items:center;gap:14px;margin-bottom:12px;flex-wrap:wrap}
@@ -64,6 +66,10 @@ header .right{margin-left:auto;background:var(--card);border:1px solid var(--bor
   <h1>🧠 LLM Server · Монитор</h1>
   <div class="sub">настрой в web/config.js</div>
   <div class="right"><span class="dot" id="hdrDot"></span><span id="hdrState">—</span> · <b id="hdrTok">…</b></div>
+  <div class="cfg" title="Настройки обновления (хранятся в браузере)">
+    <label>обновление <select id="cfgRefresh"></select></label>
+    <label>сглаживание <select id="cfgRate"></select></label>
+  </div>
 </header>
 <div class="wrap">
 
