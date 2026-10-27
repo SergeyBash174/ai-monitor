@@ -9,7 +9,7 @@ const CFG = Object.assign({
   subtitle: '',
   apiBase: '/api/v1',
   refreshMs: 2000, sparkRefreshMs: 10000, sparkMinutes: 15, sparkStep: 15,
-  rateWindow: '30s',
+  rateWindow: '45s',
   jobs: { vllm: 'vllm', node: 'node', nvml: 'nvml' },
 }, window.MONITOR_CONFIG || {});
 
@@ -17,10 +17,20 @@ const CFG = Object.assign({
 const LS_KEY = 'monitor.settings';
 try { Object.assign(CFG, JSON.parse(localStorage.getItem(LS_KEY) || '{}')); } catch (e) {}
 
+// Prometheus скрейпит каждые 15 с → окно rate() должно быть не короче 3x интервала
+// скрейпинга: иначе в окно попадает меньше двух точек и запрос возвращает пусто
+// (карточки «Скорость», CPU, диск гаснут). Меньше 45s не имеет смысла физически.
+const RATE_SEC = (() => {
+  const m = /^(\d+)(s|m|h)?$/i.exec(String(CFG.rateWindow || '45s'));
+  const mult = m && m[2] ? {s: 1, m: 60, h: 3600}[m[2].toLowerCase()] : 1;
+  return Math.max(45, m ? +m[1] * mult : 45);
+})();
+const RW = RATE_SEC + 's';
+
 const JV = `job="${CFG.jobs.vllm}"`;
 const JN = `job="${CFG.jobs.node}"`;
 const JG = `job="${CFG.jobs.nvml}"`;
-const R = (e, w = CFG.rateWindow) => `sum(rate(${e}{${JV}}[${w}]))`;
+const R = (e, w = RW) => `sum(rate(${e}{${JV}}[${w}]))`;
 const API = CFG.apiBase;
 
 // шапка из конфига
@@ -64,18 +74,19 @@ const CARDS = [
    q: `histogram_quantile(0.95, sum by (le) (rate(vllm:time_to_first_token_seconds_bucket{${JV}}[5m])))`, fmt: 2,
    sub: () => 'время до первого токена'},
   {k: 'cpu', t: '💽 Процессор', u: '%', color: '#3ddc97',
-   q: `100 - avg(rate(node_cpu_seconds_total{${JN},mode="idle"}[${CFG.rateWindow}]))*100`,
+   q: `100 - avg(rate(node_cpu_seconds_total{${JN},mode="idle"}[${RW}]))*100`,
    q2: `avg(node_load1{${JN}})`, fmt: 0,
    sub: (v, per, load) => (load ? 'load 1m ' + load.toFixed(2) : '')},
   {k: 'disk', t: '💾 Диск чтение', u: 'МБ/с', color: '#4aa8e8',
-   q: `sum(rate(node_disk_read_bytes_total{${JN}}[${CFG.rateWindow}]))/1048576`,
-   q2: `sum(rate(node_disk_written_bytes_total{${JN}}[${CFG.rateWindow}]))/1048576`, fmt: 1,
+   q: `sum(rate(node_disk_read_bytes_total{${JN}}[${RW}]))/1048576`,
+   q2: `sum(rate(node_disk_written_bytes_total{${JN}}[${RW}]))/1048576`, fmt: 1,
    sub: (v, per, wr) => 'запись ' + (wr ? wr.toFixed(1) + ' МБ/с' : '')},
 ];
 
 const KV = {
   kv: `max(vllm:kv_cache_usage_perc{${JV}})*100`,
-  run: R('vllm:num_requests_running'), wait: R('vllm:num_requests_waiting'),
+  // running/waiting — gauge: берём текущее значение напрямую, без rate()
+  run: `sum(vllm:num_requests_running{${JV}})`, wait: `sum(vllm:num_requests_waiting{${JV}})`,
   pch: `sum(rate(vllm:prefix_cache_hits_total{${JV}}[5m]))/clamp_min(sum(rate(vllm:prefix_cache_queries_total{${JV}}[5m])),1e-9)*100`,
   mtp: `sum(rate(vllm:spec_decode_num_accepted_tokens_total{${JV}}[5m]))/clamp_min(sum(rate(vllm:generation_tokens_total{${JV}}[5m])),1e-9)*100`,
   ramU: `sum(node_memory_MemTotal_bytes{${JN}})-sum(node_memory_MemAvailable_bytes{${JN}})`,
@@ -240,8 +251,8 @@ async function pollRange() {
   };
   mk('cfgRefresh', [[500, '0.5 с'], [1000, '1 с'], [2000, '2 с'], [5000, '5 с'], [10000, '10 с']],
     CFG.refreshMs, v => set({refreshMs: +v, sparkRefreshMs: Math.max(5000, +v * 5)}));
-  mk('cfgRate', [['15s', '15 с · отзывчиво'], ['30s', '30 с'], ['60s', '60 с · гладко'], ['5m', '5 мин']],
-    CFG.rateWindow, v => set({rateWindow: v}));
+  mk('cfgRate', [['45s', '45 с · отзывчиво'], ['60s', '60 с'], ['5m', '5 мин · гладко']],
+    RW, v => set({rateWindow: v}));
 }
 
 pollInstant(); pollRange();
