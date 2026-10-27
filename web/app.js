@@ -41,14 +41,37 @@ const R = (e, w = RW) => `sum(rate(${e}{${JV}}[${w}]))`;
 // вместо реальных 175.
 const I = e => `sum(irate(${e}{${JV}}[3s]))`;
 const S = e => CFG.rateWindow === 'inst' ? I(e) : R(e);
+// Скорость prefill = ФАКТИЧЕСКИ ВЫЧИСЛЕННЫЕ токены / время префилла.
+// Два подводных камня:
+// 1) prompt_tokens_total считает ВСЕ токены промпта, но при попадании в
+//    prefix cache вычисляется лишь малая часть — деление на время даёт
+//    «459 000 ток/с» вместо реальных ~2500. Числитель —
+//    request_prefill_kv_computed_tokens_sum (токены, реально посчитанные).
+// 2) vLLM пишет обе per-request метрики только при ЗАВЕРШЕНИИ запроса, поэтому
+//    знаменатель берётся rate() по окну (не irate[3s] — иначе во время генерации
+//    знаменатель пуст и деление даёт 1e13), а дробь гейтится (den > bool 0):
+//    до записи показываем 0, после — честные ток/с (держатся в окне ~10 с).
+const PRE = () => {
+  const F = CFG.rateWindow === 'inst'
+    ? e => `sum(rate(${e}{${JV}}[10s]))`
+    : e => `sum(rate(${e}{${JV}}[${RW}]))`;
+  const den = F('vllm:request_prefill_time_seconds_sum');
+  return `(${F('vllm:request_prefill_kv_computed_tokens_sum')}/clamp_min(${den},1e-9))*(${den} > bool 0)`;
+};
+
 const API = CFG.apiBase;
 
+// build-метка: по ней видно, какой JS реально работает во вкладке
+// (no-store спасает от кэша только для новых запросов; старая вкладка крутит
+// старый JS вечно, пока её не перезагрузить — устаревший код выдавал
+// «разгоняющиеся» 10→30 ток/с и prefill в 10 000+)
+const BUILD = '2026-10-27.4';
 // шапка из конфига
 {
   const h = document.querySelector('header h1');
   const s = document.querySelector('header .sub');
-  if (CFG.title) { h.textContent = CFG.title; document.title = CFG.title; }
-  if (CFG.subtitle) s.textContent = CFG.subtitle; else s.remove();
+  if (CFG.title) { h.textContent = CFG.title; document.title = CFG.title + ' · build ' + BUILD; }
+  if (s) s.textContent = (CFG.subtitle ? CFG.subtitle + ' · ' : '') + 'build ' + BUILD;
 }
 
 
@@ -162,14 +185,14 @@ const num = (v, d) => (v == null || !isFinite(v)) ? '—'
 
 // ===== состояние модели (эвристика по метрикам vLLM) =====
 let prevGen = '', genSince = 0;
-function modelState(dec, pre, run, wait) {
+function modelState(dec, run, wait) {
   // gauge num_requests_* мгновенный, без лага окна: run>0 = запрос прямо сейчас.
-  // Генерация приоритетнее префилла: пока растёт счётчик токенов-на-выходе, модель
-  // именно генерирует (короткий запрос успевает и отпрефиллиться, и сгенерировать
-  // целиком между двумя скрейпами — префилл-дельта при этом перекрывает всё)
+  // Счётчики prompt_tokens/prefill_time vLLM обновляет только при завершении
+  // запроса, так что «идёт префилл» надёжно определяется единственно доступным
+  // способом: запрос активен, а токены генерации ещё не растут.
   const active = (run || 0) > 0.5;
   const st = (wait || 0) > 0.5 ? 'queue'
-    : active ? ((dec || 0) > 1 ? 'gen' : (pre || 0) > 1 ? 'read' : 'gen')
+    : active ? ((dec || 0) > 1 ? 'gen' : 'read')
     : 'idle';
   const now = Date.now();
   if (st === 'gen' && prevGen !== 'gen') genSince = now;
@@ -182,7 +205,7 @@ async function pollInstant() {
   const errEl = document.getElementById('err');
   try {
     const jobs = [{id: 'dec', e: S('vllm:generation_tokens_total')},
-                  {id: 'pre', e: S('vllm:prompt_tokens_total')}];
+                  {id: 'pre', e: PRE()}];
     for (const c of CARDS) if (!c.dual) {
       jobs.push({id: c.k, e: c.q});
       if (c.q2) jobs.push({id: c.k + '_2', multi: !!c.multi, e: c.q2});
@@ -201,11 +224,13 @@ async function pollInstant() {
     }
 
     // --- состояние ---
-    const {st, elapsed} = modelState(M.dec, M.pre, M.kv_run, M.kv_wait);
+    const {st, elapsed} = modelState(M.dec, M.kv_run, M.kv_wait);
     // irate доживает последний скрейп-интервал после окончания запроса: без
-    // активных запросов показываем честный ноль, а не «19845 ток/с в простое»
+    // активных запросов показываем честный ноль, а не «19845 ток/с в простое».
+    // prefill не обнуляем: rate[10s] сам гаснет через 10 с после последнего
+    // завершённого префилла, и это честная скорость, а не хвост irate
     const spd = v => st === 'idle' ? 0 : v;
-    txt('v-dec', num(spd(M.dec), 1)); txt('v-pre', num(spd(M.pre), 0));
+    txt('v-dec', num(spd(M.dec), 1)); txt('v-pre', num(M.pre, 0));
     ['idle', 'read', 'gen', 'queue', 'err'].forEach(p =>
       document.getElementById('p-' + p).classList.toggle('on', p === st));
     const names = {gen: 'Генерация', read: 'Чтение', queue: 'В очереди', idle: 'Простой'};
