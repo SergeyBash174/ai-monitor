@@ -1,11 +1,11 @@
 # Страница-монитор ai-monitor (Strata-style) — статика + прокси только к Prometheus API
 server {
     listen 80;
-    server_name monitor.ai.lan;
+    server_name monitor.example.com;   # ← твой домен/имя
 
-    allow 192.168.1.0/24;               # ПК
-    allow 192.168.20.0/24;              # сегмент сервера
-    allow 100.64.0.0/10;                # Tailscale
+    # ← впиши свои подсети, из которым можно смотреть монитор
+    allow 192.168.1.0/24;               # LAN
+    allow 100.64.0.0/10;                # Tailscale (если используешь)
     allow 127.0.0.1;
     allow ::1;
     deny all;
@@ -18,7 +18,7 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
     }
 
-    root /home/sergey/monitoring/web;
+    root /opt/ai-monitor/web;   # ← путь, где лежит репозиторий на сервере
     location / {
         try_files $uri $uri/ /index.html;
     }

@@ -41,9 +41,9 @@ services:
     network_mode: host
     env_file: .env
     environment:
-      GF_SERVER_HTTP_ADDR: 127.0.0.1
-      GF_SERVER_HTTP_PORT: 3001
-      GF_SERVER_ROOT_URL: http://grafana.ai.lan/
+      GF_SERVER_HTTP_ADDR: ${GRAFANA_LISTEN_ADDR:-127.0.0.1}
+      GF_SERVER_HTTP_PORT: ${GRAFANA_LISTEN_PORT:-3001}
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://localhost:3001/}
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_NEWS_NEWS_FEED_ENABLED: "false"
       GF_USERS_ALLOW_SIGN_UP: "false"

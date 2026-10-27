@@ -13,7 +13,7 @@ CPU/диск — одна тёмная страница, обновляется 
 vLLM /metrics ─┐
 node-exporter ─┼──▶ Prometheus (127.0.0.1:9090) ──▶ web/index.html + app.js
 nvml-exporter ─┘            ▲                          (браузер, poll 2s)
-  (NVML ctypes)             └── nginx monitor.ai.lan (allow-list подсети)
+  (NVML ctypes)             └── nginx vhost (статика + только /api/v1, allow-list)
 ```
 
 - **exporter/nvml_exporter.py** — ~150 строк Python, грузит `libnvidia-ml.so.1` через `ctypes`
@@ -23,8 +23,10 @@ nvml-exporter ─┘            ▲                          (браузер, po
 - **web/** — ванильный JS: декларативный массив карточек, SVG-спарклайны (15 строк),
   anti-flicker запись в DOM, состояние модели как стейт-машина по метрикам vLLM.
 - **prometheus/** — scrape-конфиг (vLLM, node, NVML; LiteLLM опционально).
-- **nginx/** — vhost `monitor.ai.lan`: статика + прокси **только** к `/api/v1` Prometheus,
-  allow-list по подсетям.
+- **nginx/*.conf.example** — vhost'ы: статика + прокси **только** к `/api/v1` Prometheus,
+  allow-list по подсетям. Скопируйте в `.conf` и впишите свои домены/подсети (файлы `.conf` в gitignore).
+- **web/config.example.js** — персонализация страницы (заголовок, API base, имена job'ов,
+  интервалы). Скопируйте в `web/config.js` (тоже в gitignore).
 
 ## Метрики на странице
 
@@ -39,14 +41,16 @@ nvml-exporter ─┘            ▲                          (браузер, po
 ## Быстрый старт
 
 ```bash
-cp .env.example .env            # при необходимости: LITELLM_API_KEY
-docker compose up -d            # prometheus + grafana + node-exporter + nvml-exporter
-# веб-морда:
+cp .env.example .env                  # пароли, теги образов, Grafana root URL
+cp web/config.example.js web/config.js # заголовок страницы, API base, имена job'ов
+cp nginx/monitor.conf.example nginx/monitor.conf  # домен + подсети allow-list
+docker compose up -d                  # prometheus + grafana + node-exporter + nvml-exporter
 sudo cp nginx/monitor.conf /etc/nginx/conf.d/ && sudo nginx -t && sudo systemctl reload nginx
-# Grafana: http://<server>:3001 (пароль в .env), папка «LLM» — готовые дашборды vLLM
+# Grafana: http://<server>:3001 (пароль из .env), папка «LLM» — готовые дашборды vLLM
 ```
 
-Страница ожидается на `http://monitor.ai.lan` (DNS роутера или `/etc/hosts`).
+Страница открывается на вашем `monitor.<домен>` (или сразу `http://<server-ip>/`, если
+настроить default vhost). Все личные адреса живут в файлах, которые в gitignore.
 
 ## Требования
 

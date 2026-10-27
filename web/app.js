@@ -2,59 +2,79 @@
 // ===== AI-Server Monitor — реальные данные из Prometheus =====
 // Паттерны заимствованы из stratallm.org (serve/web/app.js):
 // декларативный список метрик, SVG-спарклайны, запись в DOM только при изменении.
+// Персонализация — в config.js (см. config.example.js).
 
-const V = 'job="vllm"';
-const R = (e, w = '60s') => `sum(rate(${e}{${V}}[${w}]))`;
-const API = '/api/v1';
+const CFG = Object.assign({
+  title: 'LLM Server · Монитор',
+  subtitle: '',
+  apiBase: '/api/v1',
+  refreshMs: 2000, sparkRefreshMs: 15000, sparkMinutes: 15, sparkStep: 15,
+  jobs: { vllm: 'vllm', node: 'node', nvml: 'nvml' },
+}, window.MONITOR_CONFIG || {});
+
+const JV = `job="${CFG.jobs.vllm}"`;
+const JN = `job="${CFG.jobs.node}"`;
+const JG = `job="${CFG.jobs.nvml}"`;
+const R = (e, w = '60s') => `sum(rate(${e}{${JV}}[${w}]))`;
+const API = CFG.apiBase;
+
+// шапка из конфига
+{
+  const h = document.querySelector('header h1');
+  const s = document.querySelector('header .sub');
+  if (CFG.title) { h.textContent = CFG.title; document.title = CFG.title; }
+  if (CFG.subtitle) s.textContent = CFG.subtitle; else s.remove();
+}
+
 
 const CARDS = [
   {k: 'speed', t: '⚡ Скорость', color: '#3ddc97', dual: true},
   {k: 'gpu', t: '🎛 Загрузка GPU', u: '%', color: '#3ddc97',
-   q: 'avg(nvml_gpu_utilization_percent{job="nvml"})',
-   raw: 'nvml_gpu_utilization_percent{job="nvml"}', fmt: 0,
+   q: `avg(nvml_gpu_utilization_percent{${JG}})`,
+   raw: `nvml_gpu_utilization_percent{${JG}}`, fmt: 0,
    sub: (v, per) => per ? per.map(p => 'GPU' + p.m + ' ' + (+p.v[1]).toFixed(0) + '%').join(' · ') : ''},
   {k: 'vram', t: '🗂 Видеопамять', u: 'ГБ', color: '#3ddc97',
-   q: 'sum(nvml_gpu_memory_used_bytes{job="nvml"})/1073741824',
-   q2: 'sum(nvml_gpu_memory_total_bytes{job="nvml"})/1073741824',
-   raw: 'nvml_gpu_memory_used_bytes{job="nvml"}/1073741824', fmt: 1,
+   q: `sum(nvml_gpu_memory_used_bytes{${JG}})/1073741824`,
+   q2: `sum(nvml_gpu_memory_total_bytes{${JG}})/1073741824`,
+   raw: `nvml_gpu_memory_used_bytes{${JG}}/1073741824`, fmt: 1,
    sub: (v, per, tot) => (per ? per.map(p => 'GPU' + p.m + ' ' + (+p.v[1]).toFixed(1)).join(' · ') + ' ГБ' : '') +
      (tot ? ' / ' + tot.toFixed(0) + ' ГБ' : '')},
   {k: 'temp', t: '🌡 Температура GPU', u: '°C', color: '#e8a33d',
-   q: 'max(nvml_gpu_temperature_celsius{job="nvml"})',
-   raw: 'nvml_gpu_temperature_celsius{job="nvml"}', fmt: 0,
+   q: `max(nvml_gpu_temperature_celsius{${JG}})`,
+   raw: `nvml_gpu_temperature_celsius{${JG}}`, fmt: 0,
    sub: (v, per) => per ? 'мин ' + Math.min(...per.map(p => +p.v[1])).toFixed(0) + '° · макс ' + Math.max(...per.map(p => +p.v[1])).toFixed(0) + '°' : ''},
   {k: 'pw', t: '🔌 Мощность', u: 'Вт', color: '#3ddc97',
-   q: 'sum(nvml_gpu_power_watts{job="nvml"})',
-   q2: 'sum(nvml_gpu_power_limit_watts{job="nvml"})', fmt: 0,
+   q: `sum(nvml_gpu_power_watts{${JG}})`,
+   q2: `sum(nvml_gpu_power_limit_watts{${JG}})`, fmt: 0,
    sub: (v, per, tot) => tot ? 'из ' + tot.toFixed(0) + ' Вт (лимит)' : ''},
   {k: 'pcie', t: '🚌 Пропускная PCIe', u: 'МБ/с', color: '#a78bfa',
-   q: 'sum(nvml_pcie_throughput_kbytes_per_sec{job="nvml"})/1024',
-   q2: 'sum by (direction) (nvml_pcie_throughput_kbytes_per_sec{job="nvml"})/1024', fmt: 0,
+   q: `sum(nvml_pcie_throughput_kbytes_per_sec{${JG}})/1024`,
+   q2: `sum by (direction) (nvml_pcie_throughput_kbytes_per_sec{${JG}})/1024`, fmt: 0,
    sub: (v, per, dirs) => {
      if (!dirs) return '';
      const rx = dirs.find(d => d.m.direction === 'rx'), tx = dirs.find(d => d.m.direction === 'tx');
      return 'RX ' + (rx ? (+rx.v[1]).toFixed(0) : '0') + ' · TX ' + (tx ? (+tx.v[1]).toFixed(0) : '0') + ' МБ/с';
    }},
   {k: 'ttft', t: '⏱ TTFT p95', u: 'с', color: '#4aa8e8',
-   q: `histogram_quantile(0.95, sum by (le) (rate(vllm:time_to_first_token_seconds_bucket{${V}}[5m])))`, fmt: 2,
+   q: `histogram_quantile(0.95, sum by (le) (rate(vllm:time_to_first_token_seconds_bucket{${JV}}[5m])))`, fmt: 2,
    sub: () => 'время до первого токена'},
   {k: 'cpu', t: '💽 Процессор', u: '%', color: '#3ddc97',
-   q: '100 - avg(rate(node_cpu_seconds_total{job="node",mode="idle"}[60s]))*100',
-   q2: 'avg(node_load1{job="node"})', fmt: 0,
+   q: `100 - avg(rate(node_cpu_seconds_total{${JN},mode="idle"}[60s]))*100`,
+   q2: `avg(node_load1{${JN}})`, fmt: 0,
    sub: (v, per, load) => (load ? 'load 1m ' + load.toFixed(2) : '')},
   {k: 'disk', t: '💾 Диск чтение', u: 'МБ/с', color: '#4aa8e8',
-   q: 'sum(rate(node_disk_read_bytes_total{job="node"}[60s]))/1048576',
-   q2: 'sum(rate(node_disk_written_bytes_total{job="node"}[60s]))/1048576', fmt: 1,
+   q: `sum(rate(node_disk_read_bytes_total{${JN}}[60s]))/1048576`,
+   q2: `sum(rate(node_disk_written_bytes_total{${JN}}[60s]))/1048576`, fmt: 1,
    sub: (v, per, wr) => 'запись ' + (wr ? wr.toFixed(1) + ' МБ/с' : '')},
 ];
 
 const KV = {
-  kv: `max(vllm:kv_cache_usage_perc{${V}})*100`,
+  kv: `max(vllm:kv_cache_usage_perc{${JV}})*100`,
   run: R('vllm:num_requests_running', '1m'), wait: R('vllm:num_requests_waiting', '1m'),
-  pch: `sum(rate(vllm:prefix_cache_hits_total{${V}}[5m]))/clamp_min(sum(rate(vllm:prefix_cache_queries_total{${V}}[5m])),1e-9)*100`,
-  mtp: `sum(rate(vllm:spec_decode_num_accepted_tokens_total{${V}}[5m]))/clamp_min(sum(rate(vllm:generation_tokens_total{${V}}[5m])),1e-9)*100`,
-  ramU: 'sum(node_memory_MemTotal_bytes{job="node"})-sum(node_memory_MemAvailable_bytes{job="node"})',
-  ramT: 'sum(node_memory_MemTotal_bytes{job="node"})',
+  pch: `sum(rate(vllm:prefix_cache_hits_total{${JV}}[5m]))/clamp_min(sum(rate(vllm:prefix_cache_queries_total{${JV}}[5m])),1e-9)*100`,
+  mtp: `sum(rate(vllm:spec_decode_num_accepted_tokens_total{${JV}}[5m]))/clamp_min(sum(rate(vllm:generation_tokens_total{${JV}}[5m])),1e-9)*100`,
+  ramU: `sum(node_memory_MemTotal_bytes{${JN}})-sum(node_memory_MemAvailable_bytes{${JN}})`,
+  ramT: `sum(node_memory_MemTotal_bytes{${JN}})`,
 };
 
 // ===== построение карточек (паттерн Strata) =====
@@ -76,8 +96,9 @@ async function jq(expr) {
   const j = await r.json();
   return j.data.result;
 }
-async function jqRange(expr, mins = 15, step = 15) {
+async function jqRange(expr) {
   const now = Math.floor(Date.now() / 1000);
+  const mins = CFG.sparkMinutes, step = CFG.sparkStep;
   const r = await fetch(`${API}/query_range?query=${encodeURIComponent(expr)}` +
     `&start=${now - mins * 60}&end=${now}&step=${step}`);
   if (!r.ok) throw new Error('prom ' + r.status);
@@ -196,7 +217,7 @@ async function pollRange() {
 }
 
 pollInstant(); pollRange();
-setInterval(pollInstant, 2000);
-setInterval(pollRange, 15000);
+setInterval(pollInstant, CFG.refreshMs);
+setInterval(pollRange, CFG.sparkRefreshMs);
 
 

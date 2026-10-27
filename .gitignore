@@ -1,6 +1,9 @@
-# Secrets — never commit
+# Secrets & personal config — never commit
 .env
 prometheus/secrets/
+web/config.js
+nginx/*.conf
 
 # Runtime data
 *.log
+__pycache__/

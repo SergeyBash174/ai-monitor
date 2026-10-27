@@ -1,11 +1,11 @@
-# Мониторинг LLM: Grafana + Prometheus (IMP5-7806)
-# Порт 80, как у vllm.conf; allow-list идентичен существующим vhost-ам.
+# Мониторинг LLM: Grafana + Prometheus через reverse proxy
+# Порт 80; allow-list ограничивает доступ по подсетям.
 server {
     listen 80;
-    server_name grafana.ai.lan;
+    server_name grafana.example.com;
 
-    allow 192.168.1.0/24;               # ПК
-    allow 192.168.20.0/24;              # сегмент сервера
+    allow 192.168.1.0/24;               # LAN
+    allow 10.0.0.0/24;                # вторая подсеть (по необходимости)
     allow 100.64.0.0/10;                # Tailscale
     allow 127.0.0.1;
     allow ::1;
@@ -24,10 +24,10 @@ server {
 
 server {
     listen 80;
-    server_name prometheus.ai.lan;
+    server_name prometheus.example.com;
 
     allow 192.168.1.0/24;
-    allow 192.168.20.0/24;
+    allow 10.0.0.0/24;                # вторая подсеть (по необходимости)
     allow 100.64.0.0/10;
     allow 127.0.0.1;
     allow ::1;
