@@ -189,7 +189,6 @@ async function pollInstant() {
     jobs.forEach((j, i) => M[j.id] = (j.raw || j.multi) ? toSeries(res[i])
       : res[i].length ? +res[i][0].value[1] : null);
 
-    txt('v-dec', num(M.dec, 1)); txt('v-pre', num(M.pre, 0));
     for (const c of CARDS) {
       if (c.dual) continue;
       txt('v-' + c.k, num(M[c.k], c.fmt));
@@ -198,10 +197,14 @@ async function pollInstant() {
 
     // --- состояние ---
     const {st, elapsed} = modelState(M.dec, M.pre, M.kv_run, M.kv_wait);
+    // irate доживает последний скрейп-интервал после окончания запроса: без
+    // активных запросов показываем честный ноль, а не «19845 ток/с в простое»
+    const spd = v => st === 'idle' ? 0 : v;
+    txt('v-dec', num(spd(M.dec), 1)); txt('v-pre', num(spd(M.pre), 0));
     ['idle', 'read', 'gen', 'queue', 'err'].forEach(p =>
       document.getElementById('p-' + p).classList.toggle('on', p === st));
     const names = {gen: 'Генерация', read: 'Чтение', queue: 'В очереди', idle: 'Простой'};
-    txt('hdrState', names[st]); txt('hdrTok', num(M.dec, 1) + ' ток/с');
+    txt('hdrState', names[st]); txt('hdrTok', num(spd(M.dec), 1) + ' ток/с');
     document.getElementById('hdrDot').className = 'dot ' +
       (st === 'gen' ? 'g' : st === 'read' ? 'b' : st === 'queue' ? 'y' : '');
     txt('phase', st === 'gen' ? 'Думает (' + elapsed.toFixed(0) + ' с)'
