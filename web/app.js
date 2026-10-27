@@ -32,12 +32,12 @@ const CARDS = [
   {k: 'gpu', t: '🎛 Загрузка GPU', u: '%', color: '#3ddc97',
    q: `avg(nvml_gpu_utilization_percent{${JG}})`,
    raw: `nvml_gpu_utilization_percent{${JG}}`, fmt: 0,
-   sub: (v, per) => per ? per.map(p => 'GPU' + p.m + ' ' + (+p.v[1]).toFixed(0) + '%').join(' · ') : ''},
+   sub: (v, per) => per ? per.map(p => 'GPU' + p.m.gpu + ' ' + (+p.v[1]).toFixed(0) + '%').join(' · ') : ''},
   {k: 'vram', t: '🗂 Видеопамять', u: 'ГБ', color: '#3ddc97',
    q: `sum(nvml_gpu_memory_used_bytes{${JG}})/1073741824`,
    q2: `sum(nvml_gpu_memory_total_bytes{${JG}})/1073741824`,
    raw: `nvml_gpu_memory_used_bytes{${JG}}/1073741824`, fmt: 1,
-   sub: (v, per, tot) => (per ? per.map(p => 'GPU' + p.m + ' ' + (+p.v[1]).toFixed(1)).join(' · ') + ' ГБ' : '') +
+   sub: (v, per, tot) => (per ? per.map(p => 'GPU' + p.m.gpu + ' ' + (+p.v[1]).toFixed(1)).join(' · ') + ' ГБ' : '') +
      (tot ? ' / ' + tot.toFixed(0) + ' ГБ' : '')},
   {k: 'temp', t: '🌡 Температура GPU', u: '°C', color: '#e8a33d',
    q: `max(nvml_gpu_temperature_celsius{${JG}})`,
@@ -47,7 +47,7 @@ const CARDS = [
    q: `sum(nvml_gpu_power_watts{${JG}})`,
    q2: `sum(nvml_gpu_power_limit_watts{${JG}})`, fmt: 0,
    sub: (v, per, tot) => tot ? 'из ' + tot.toFixed(0) + ' Вт (лимит)' : ''},
-  {k: 'pcie', t: '🚌 Пропускная PCIe', u: 'МБ/с', color: '#a78bfa',
+  {k: 'pcie', t: '🚌 Пропускная PCIe', u: 'МБ/с', color: '#a78bfa', multi: true,
    q: `sum(nvml_pcie_throughput_kbytes_per_sec{${JG}})/1024`,
    q2: `sum by (direction) (nvml_pcie_throughput_kbytes_per_sec{${JG}})/1024`, fmt: 0,
    sub: (v, per, dirs) => {
@@ -96,6 +96,8 @@ async function jq(expr) {
   const j = await r.json();
   return j.data.result;
 }
+// серия Prometheus {metric, value} → компактный {m, v} для sub()-функций карточек
+const series = res => res.map(x => ({m: x.metric, v: x.value}));
 async function jqRange(expr) {
   const now = Math.floor(Date.now() / 1000);
   const mins = CFG.sparkMinutes, step = CFG.sparkStep;
@@ -149,13 +151,13 @@ async function pollInstant() {
                   {id: 'pre', e: R('vllm:prompt_tokens_total')}];
     for (const c of CARDS) if (!c.dual) {
       jobs.push({id: c.k, e: c.q});
-      if (c.q2) jobs.push({id: c.k + '_2', e: c.q2});
+      if (c.q2) jobs.push({id: c.k + '_2', multi: !!c.multi, e: c.q2});
       if (c.raw) jobs.push({id: c.k + '_raw', raw: true, e: c.raw});
     }
     for (const k in KV) jobs.push({id: 'kv_' + k, e: KV[k]});
     const res = await Promise.all(jobs.map(j => jq(j.e)));
     const M = {};
-    jobs.forEach((j, i) => M[j.id] = j.raw ? res[i]
+    jobs.forEach((j, i) => M[j.id] = (j.raw || j.multi) ? series(res[i])
       : res[i].length ? +res[i][0].value[1] : null);
 
     txt('v-dec', num(M.dec, 1)); txt('v-pre', num(M.pre, 0));
