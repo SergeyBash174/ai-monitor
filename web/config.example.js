@@ -15,11 +15,12 @@ window.MONITOR_CONFIG = {
   sparkRefreshMs: 10000,
   sparkMinutes: 15,
 
-  // Smoothing window for rate() queries. Scrape interval is 15s and rate()
-  // needs >= 2 samples in the window, so the effective minimum is 45s (3x
-  // scrape) — shorter values are clamped. 45s = responsive, 60s+ = smooth.
-  // Can be overridden live from the page header (stored in localStorage).
-  rateWindow: '45s',
+  // Speed metric mode: 'inst' (default) = irate — true tokens/s right now,
+  // zero in idle. A window like '45s'/'5m' = rate() average over the window
+  // (smoother, but smears bursts and lags behind reality; minimum 45s = 3x
+  // the 15s scrape interval, shorter is clamped). Overridable live in the
+  // page header (stored in localStorage).
+  rateWindow: 'inst',
 
   // Prometheus job names as in prometheus/prometheus.yml
   jobs: { vllm: 'vllm', node: 'node', nvml: 'nvml' },

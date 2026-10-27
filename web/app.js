@@ -9,7 +9,7 @@ const CFG = Object.assign({
   subtitle: '',
   apiBase: '/api/v1',
   refreshMs: 2000, sparkRefreshMs: 10000, sparkMinutes: 15, sparkStep: 15,
-  rateWindow: '45s',
+  rateWindow: 'inst',
   jobs: { vllm: 'vllm', node: 'node', nvml: 'nvml' },
 }, window.MONITOR_CONFIG || {});
 
@@ -31,6 +31,11 @@ const JV = `job="${CFG.jobs.vllm}"`;
 const JN = `job="${CFG.jobs.node}"`;
 const JG = `job="${CFG.jobs.nvml}"`;
 const R = (e, w = RW) => `sum(rate(${e}{${JV}}[${w}]))`;
+// Скорость: 'inst' = irate — фактические ток/с в последний момент (ноль в простое,
+// без размазывания всплеска по всему окну). rate() же усредняет: после короткого
+// префилла 45 с показывает «11346 ток/с», а генерация — усреднённую чушь.
+const I = e => `sum(irate(${e}{${JV}}[2m]))`;
+const S = e => CFG.rateWindow === 'inst' ? I(e) : R(e);
 const API = CFG.apiBase;
 
 // шапка из конфига
@@ -110,12 +115,13 @@ async function jq(expr) {
   const r = await fetch(`${API}/query?query=${encodeURIComponent(expr)}`);
   if (!r.ok) throw new Error('prom ' + r.status);
   const j = await r.json();
+  if (j.data.result.length) clockOffset = +j.data.result[0].value[0] - Date.now() / 1000;
   return j.data.result;
 }
 // серия Prometheus {metric, value} → компактный {m, v} для sub()-функций карточек
 const toSeries = res => res.map(x => ({m: x.metric, v: x.value}));
 async function jqRange(expr) {
-  const now = Math.floor(Date.now() / 1000);
+  const now = Math.floor(Date.now() / 1000 + clockOffset);
   const mins = CFG.sparkMinutes, step = CFG.sparkStep;
   const r = await fetch(`${API}/query_range?query=${encodeURIComponent(expr)}` +
     `&start=${now - mins * 60}&end=${now}&step=${step}`);
@@ -133,6 +139,7 @@ function spark(id, values) {
   svg.querySelector('.line').setAttribute('d', line);
   svg.querySelector('.area').setAttribute('d', `${line}L100,32L0,32Z`);
 }
+let clockOffset = 0; // время Prometheus минус часы браузера (обновляется из каждого ответа)
 const last = {};
 function txt(id, val) {
   val = String(val);
@@ -150,9 +157,15 @@ const num = (v, d) => (v == null || !isFinite(v)) ? '—'
 
 // ===== состояние модели (эвристика по метрикам vLLM) =====
 let prevGen = '', genSince = 0;
-function modelState(dec, pre, wait) {
-  const st = (dec || 0) > 1 ? 'gen' : (wait || 0) > 0.5 ? 'queue'
-    : (pre || 0) > 100 ? 'read' : 'idle';
+function modelState(dec, pre, run, wait) {
+  // gauge num_requests_* мгновенный, без лага окна: run>0 = запрос прямо сейчас.
+  // Генерация приоритетнее префилла: пока растёт счётчик токенов-на-выходе, модель
+  // именно генерирует (короткий запрос успевает и отпрефиллиться, и сгенерировать
+  // целиком между двумя скрейпами — префилл-дельта при этом перекрывает всё)
+  const active = (run || 0) > 0.5;
+  const st = (wait || 0) > 0.5 ? 'queue'
+    : active ? ((dec || 0) > 1 ? 'gen' : (pre || 0) > 1 ? 'read' : 'gen')
+    : 'idle';
   const now = Date.now();
   if (st === 'gen' && prevGen !== 'gen') genSince = now;
   prevGen = st;
@@ -163,8 +176,8 @@ function modelState(dec, pre, wait) {
 async function pollInstant() {
   const errEl = document.getElementById('err');
   try {
-    const jobs = [{id: 'dec', e: R('vllm:generation_tokens_total')},
-                  {id: 'pre', e: R('vllm:prompt_tokens_total')}];
+    const jobs = [{id: 'dec', e: S('vllm:generation_tokens_total')},
+                  {id: 'pre', e: S('vllm:prompt_tokens_total')}];
     for (const c of CARDS) if (!c.dual) {
       jobs.push({id: c.k, e: c.q});
       if (c.q2) jobs.push({id: c.k + '_2', multi: !!c.multi, e: c.q2});
@@ -184,7 +197,7 @@ async function pollInstant() {
     }
 
     // --- состояние ---
-    const {st, elapsed} = modelState(M.dec, M.pre, M.kv_wait);
+    const {st, elapsed} = modelState(M.dec, M.pre, M.kv_run, M.kv_wait);
     ['idle', 'read', 'gen', 'queue', 'err'].forEach(p =>
       document.getElementById('p-' + p).classList.toggle('on', p === st));
     const names = {gen: 'Генерация', read: 'Чтение', queue: 'В очереди', idle: 'Простой'};
@@ -226,7 +239,7 @@ async function pollRange() {
   try {
     const plain = CARDS.filter(c => !c.dual);
     const series = await Promise.all([
-      jqRange(R('vllm:generation_tokens_total')),
+      jqRange(S('vllm:generation_tokens_total')),
       ...plain.map(c => jqRange(c.q)),
     ]);
     spark('s-speed', series[0]);
@@ -251,8 +264,8 @@ async function pollRange() {
   };
   mk('cfgRefresh', [[500, '0.5 с'], [1000, '1 с'], [2000, '2 с'], [5000, '5 с'], [10000, '10 с']],
     CFG.refreshMs, v => set({refreshMs: +v, sparkRefreshMs: Math.max(5000, +v * 5)}));
-  mk('cfgRate', [['45s', '45 с · отзывчиво'], ['60s', '60 с'], ['5m', '5 мин · гладко']],
-    RW, v => set({rateWindow: v}));
+  mk('cfgRate', [['inst', 'мгновенно'], ['45s', '45 с · сглаживание'], ['5m', '5 мин · сглаживание']],
+    CFG.rateWindow === 'inst' ? 'inst' : RW, v => set({rateWindow: v}));
 }
 
 pollInstant(); pollRange();
