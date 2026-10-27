@@ -19,6 +19,14 @@ server {
     }
 
     root /opt/ai-monitor/web;   # ← путь, где лежит репозиторий на сервере
+
+    # Без Cache-Control браузеры кешируют app.js эвристически и часы крутят
+    # старый код после деплоя (дефолтный nginx отдаёт только ETag/Last-Modified,
+    # а открытая вкладка монитора вообще не перезапрашивает JS)
+    location ~* /(index\.html|app\.js|config\.js)$ {
+        add_header Cache-Control "no-store";
+    }
+
     location / {
         try_files $uri $uri/ /index.html;
     }
